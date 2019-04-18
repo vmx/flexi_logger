@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2019-04-18
+
+Suppport different formatting for stderr and files.
+
+Add feature `colors` (see `README.md` for details).
+
+Remove the deprecated `Logger::start_reconfigurable()`.
+
+## [0.11.4] - 2019-04-01
+
+Version updates of dependencies.
+
 ## [0.11.3] - 2019-03-28
 
 Add SyslogWriter.

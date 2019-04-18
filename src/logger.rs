@@ -59,7 +59,8 @@ pub struct Logger {
     parse_errs: Option<Vec<String>>,
     log_target: LogTarget,
     duplicate: Duplicate,
-    format: FormatFunction,
+    format_for_file: FormatFunction,
+    format_for_stderr: FormatFunction,
     flwb: FileLogWriterBuilder,
     other_writers: HashMap<String, Box<LogWriter>>,
 }
@@ -97,12 +98,18 @@ impl Logger {
     }
 
     fn from_spec_and_errs(spec: LogSpecification, parse_errs: Option<Vec<String>>) -> Logger {
+        #[cfg(feature = "colors")]
+        let default_format = formats::colored_default_format;
+        #[cfg(not(feature = "colors"))]
+        let default_format = formats::default_format;
+
         Logger {
             spec,
             parse_errs,
             log_target: LogTarget::StdErr,
             duplicate: Duplicate::None,
-            format: formats::default_format,
+            format_for_file: default_format,
+            format_for_stderr: default_format,
             flwb: FileLogWriter::builder(),
             other_writers: HashMap::<String, Box<LogWriter>>::new(),
         }
@@ -134,11 +141,15 @@ impl Logger {
 
         let primary_writer = Arc::new(match self.log_target {
             LogTarget::File => {
-                self.flwb = self.flwb.format(self.format);
-                PrimaryWriter::file(self.duplicate, self.flwb.instantiate()?)
+                self.flwb = self.flwb.format(self.format_for_file);
+                PrimaryWriter::file(
+                    self.duplicate,
+                    self.format_for_stderr,
+                    self.flwb.instantiate()?,
+                )
             }
-            LogTarget::StdErr => PrimaryWriter::stderr(self.format),
-            LogTarget::DevNull => PrimaryWriter::black_hole(self.duplicate, self.format),
+            LogTarget::StdErr => PrimaryWriter::stderr(self.format_for_stderr),
+            LogTarget::DevNull => PrimaryWriter::black_hole(self.duplicate, self.format_for_stderr),
         });
 
         let flexi_logger = FlexiLogger::new(
@@ -150,14 +161,6 @@ impl Logger {
         log::set_boxed_logger(Box::new(flexi_logger))?;
         log::set_max_level(max);
         Ok(reconfiguration_handle(spec, primary_writer))
-    }
-
-    /// This method is deprecated. The standard `start()` method now returns a
-    /// reconfiguration handle because there is no performance penalty any more for
-    /// reconfigurability.
-    #[deprecated(since = "0.10.6", note = "please use `start()` instead")]
-    pub fn start_reconfigurable(self) -> Result<ReconfigurationHandle, FlexiLoggerError> {
-        self.start()
     }
 
     /// Consumes the Logger object and initializes `flexi_logger` in a way that
@@ -337,15 +340,38 @@ impl Logger {
         self
     }
 
-    /// Makes the logger use the provided format function for the log entries,
-    /// rather than [formats::default_format](fn.default_format.html).
+    /// Makes the logger use the provided format function for all messages
+    /// that are written to files or to stderr.
     ///
-    /// You can either choose between some predefined variants,
-    /// ```default_format```, ```opt_format```, ```detailed_format```, ```with_thread```,
-    /// or you create and use your own format function
-    /// with the signature ```fn(&Record) -> String```.
+    /// You can either choose one of the provided log-line formatters,
+    /// or you create and use your own format function with the signature <br>
+    /// ```fn(&Record) -> String```.
+    ///
+    /// By default,
+    /// `default_format()` is used for the output to files and
+    /// `colored_default_format()` is used for the output to stderr.
+    ///
+    /// If the feature `colors` is switched off,
+    /// `default_format()` is used for all outputs.
     pub fn format(mut self, format: FormatFunction) -> Logger {
-        self.format = format;
+        self.format_for_file = format;
+        self.format_for_stderr = format;
+        self
+    }
+
+    /// Makes the logger use the provided format function for messages that are written to files.
+    ///
+    /// Regarding the default, see [Logger::format()](struct.Logger.html#method.format).
+    pub fn format_for_files(mut self, format: FormatFunction) -> Logger {
+        self.format_for_file = format;
+        self
+    }
+
+    /// Makes the logger use the provided format function for messages that are written to stderr.
+    ///
+    /// Regarding the default, see [Logger::format()](struct.Logger.html#method.format).
+    pub fn format_for_stderr(mut self, format: FormatFunction) -> Logger {
+        self.format_for_stderr = format;
         self
     }
 
@@ -375,15 +401,13 @@ impl Logger {
         self
     }
 
-    /// Prevents indefinite growth of log files.
+    /// Prevents indefinite growth of the log file by applying file rotation
+    /// and a clean-up strategy for older log files.
     ///
     /// By default, the log file is fixed while your program is running and will grow indefinitely.
     /// With this option being used, when the log file reaches or exceeds the specified file size,
     /// the file will be closed and a new file will be opened.
     ///
-    /// The rotate-over-size is given in bytes, e.g. `rotate_over_size(1_000)` will rotate
-    /// files once they reach a size of 1000 bytes.
-    ///     
     /// Note that also the filename pattern changes:
     ///
     /// - by default, no timestamp is added to the filename
@@ -403,7 +427,12 @@ impl Logger {
     /// my_prog_rCURRENT.log
     /// ```
     ///
-    /// The cleanup parameter allows defining the strategy for dealing with older files.
+    /// ## Parameters
+    ///
+    /// `rotate_over_size` is given in bytes, e.g. `10_000_000` will rotate
+    /// files once they reach a size of 10 MiB.
+    ///     
+    /// `cleanup` defines the strategy for dealing with older files.
     /// See [Cleanup](enum.Cleanup.html) for details.
     pub fn rotate(mut self, rotate_over_size: usize, cleanup: Cleanup) -> Logger {
         self.flwb = self.flwb.rotate(rotate_over_size, cleanup);

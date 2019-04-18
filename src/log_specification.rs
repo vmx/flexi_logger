@@ -468,7 +468,7 @@ fn contains_dash_or_whitespace(s: &str, parse_errs: &mut Vec<String>) -> bool {
 ///     // Initialize Logger, keep builder alive
 ///     let mut logger_reconf_handle = Logger::with(builder.build())
 ///         // your logger configuration goes here, as usual
-///         .start_reconfigurable()
+///         .start()
 ///         .unwrap_or_else(|e| panic!("Logger initialization failed with {}", e));
 ///
 ///     // ...
